@@ -71,7 +71,9 @@ public static class Updater
         foreach (var a in root.GetProperty("assets").EnumerateArray())
         {
             string name = a.GetProperty("name").GetString() ?? "";
-            string url = a.GetProperty("browser_download_url").GetString() ?? "";
+            // 用 API 的附檔網址下載（帶 Accept: application/octet-stream），
+            // 比 github.com/…/releases/download/… 穩定；後者曾整個版本回 504
+            string url = a.GetProperty("url").GetString() ?? "";
             if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && info.Url.Length == 0)
             {
                 info.Url = url;
@@ -86,7 +88,14 @@ public static class Updater
         }
         if (info.Url.Length == 0) throw new InvalidDataException("最新版本裡沒有安裝檔");
         if (info.Sha256.Length == 0 && shaUrl != null)
-            info.Sha256 = (await Http.GetStringAsync(shaUrl)).Trim().Split(' ', '\t', '\r', '\n')[0];
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, shaUrl);
+            req.Headers.Accept.ParseAdd("application/octet-stream");
+            req.Headers.UserAgent.ParseAdd($"HanchengMonitor-Updater/{Current.ToString(3)}");
+            using var r = await Download.SendAsync(req);
+            r.EnsureSuccessStatusCode();
+            info.Sha256 = (await r.Content.ReadAsStringAsync()).Trim().Split(' ', '\t', '\r', '\n')[0];
+        }
         return info;
     }
 
@@ -98,13 +107,57 @@ public static class Updater
         if (string.IsNullOrWhiteSpace(info.Sha256))
             throw new InvalidDataException("找不到安裝檔的 SHA-256，基於安全不進行更新");
 
-        byte[] data = await Http.GetByteArrayAsync(u);
-        string hash = Convert.ToHexString(SHA256.HashData(data));
-        if (!hash.Equals(info.Sha256.Trim(), StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("下載的檔案驗證失敗（SHA-256 不符），已取消更新");
-
         string path = Path.Combine(Path.GetTempPath(), $"HanchengMonitor_Setup_{info.Version}.exe");
-        await File.WriteAllBytesAsync(path, data);
+        await DownloadWithRetryAsync(u, path);
+
+        string hash;
+        using (var fs = File.OpenRead(path)) hash = Convert.ToHexString(await SHA256.HashDataAsync(fs));
+        if (!hash.Equals(info.Sha256.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            try { File.Delete(path); } catch { }
+            throw new InvalidDataException("下載的檔案驗證失敗（SHA-256 不符），已取消更新");
+        }
         Process.Start(new ProcessStartInfo(path, "/SILENT /SUPPRESSMSGBOXES /NORESTART") { UseShellExecute = true });
     }
+
+    private static readonly HttpClient Download = new() { Timeout = TimeSpan.FromMinutes(10) };
+
+    /// <summary>邊下載邊寫檔；遇到 GitHub 暫時性錯誤（5xx、逾時）最多重試 3 次。</summary>
+    private static async Task DownloadWithRetryAsync(Uri url, string path)
+    {
+        int[] waitSeconds = { 3, 10, 30 };
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                req.Headers.Accept.ParseAdd("application/octet-stream");
+                req.Headers.UserAgent.ParseAdd($"HanchengMonitor-Updater/{Current.ToString(3)}");
+                using var resp = await Download.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+                if ((int)resp.StatusCode >= 500)
+                    throw new HttpRequestException($"伺服器錯誤 {(int)resp.StatusCode}", null, resp.StatusCode);
+                resp.EnsureSuccessStatusCode();
+                await using var src = await resp.Content.ReadAsStreamAsync();
+                await using var dst = File.Create(path);
+                await src.CopyToAsync(dst);
+                return;
+            }
+            catch (Exception ex) when (attempt < waitSeconds.Length && IsTransient(ex))
+            {
+                await Task.Delay(TimeSpan.FromSeconds(waitSeconds[attempt]));
+            }
+            catch (Exception ex) when (IsTransient(ex))
+            {
+                throw new InvalidOperationException("GitHub 下載伺服器暫時沒有回應，請過幾分鐘再按一次「更新」。", ex);
+            }
+        }
+    }
+
+    private static bool IsTransient(Exception ex) => ex switch
+    {
+        HttpRequestException h => h.StatusCode == null || (int)h.StatusCode >= 500,
+        TaskCanceledException => true,
+        IOException => true,
+        _ => false,
+    };
 }

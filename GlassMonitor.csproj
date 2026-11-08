@@ -11,7 +11,7 @@
     <RootNamespace>GlassMonitor</RootNamespace>
     <Product>瀚誠系統監控</Product>
     <AssemblyTitle>瀚誠系統監控</AssemblyTitle>
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
