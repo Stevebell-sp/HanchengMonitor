@@ -34,7 +34,7 @@ public sealed class AppSettings
 
     // 項目
     public List<string> Order { get; set; } = new();
-    public List<string> Hidden { get; set; } = new() { "memproc", "cpuclock", "gpuclock", "cpupower", "gpupower", "gpufan", "fan", "battery" };
+    public List<string> Hidden { get; set; } = new() { "memproc", "cpuclock", "gpuclock", "cpupower", "gpupower", "gpufan", "fan", "battery", "gamefps", "gameping" };
 
     // 遊戲模式（與永遠置頂各自獨立）
     public bool GameMode { get; set; } = true;
@@ -43,7 +43,16 @@ public sealed class AppSettings
     public bool GameMini { get; set; } = true;
     /// <summary>遊戲中改用簡約外觀（不發光、不畫圖示，比較不搶畫面）。</summary>
     public bool GameSimple { get; set; }
-    public List<string> GameItems { get; set; } = new() { "cpu", "cputemp", "gpu", "gputemp", "gpumem" };
+    /// <summary>遊戲中測量 FPS（背景執行 PresentMon）。</summary>
+    public bool GameFps { get; set; } = true;
+    /// <summary>遊戲中測量伺服器延遲。</summary>
+    public bool GamePing { get; set; } = true;
+    /// <summary>遊戲是視窗模式時，小工具放在遊戲視窗裡面（位置規則與遊戲中位置相同）。</summary>
+    public bool GameFollowWindow { get; set; } = true;
+    /// <summary>視窗模式遊戲、位置選「自訂」時，相對遊戲畫面左上角的位置。</summary>
+    public double GameWinLeft { get; set; } = double.NaN;
+    public double GameWinTop { get; set; } = double.NaN;
+    public List<string> GameItems { get; set; } = new() { "cpu", "cputemp", "gpu", "gputemp", "gpumem", "gamefps", "gameping" };
     /// <summary>遊戲中的排列：Horizontal / Vertical。</summary>
     public string GameLayout { get; set; } = "Horizontal";
     /// <summary>遊戲中的位置：Custom（自己拖曳）或固定方位 TopLeft / TopCenter / TopRight / BottomLeft / BottomCenter / BottomRight。</summary>
@@ -57,6 +66,10 @@ public sealed class AppSettings
     public double AlertGpuTemp { get; set; } = 83;
     public double AlertMemPct { get; set; } = 90;
     public bool AlertNotify { get; set; } = true;
+    /// <summary>CPU 風扇／水冷泵轉速過低（停轉）警示，預設關閉。</summary>
+    public bool AlertFanStall { get; set; }
+    public double AlertCpuFanRpm { get; set; } = 300;
+    public double AlertPumpRpm { get; set; } = 800;
 
     // 歷史紀錄
     public bool HistoryEnabled { get; set; } = true;
@@ -78,7 +91,7 @@ public sealed class AppSettings
     public double Left { get; set; } = double.NaN;
     public double Top { get; set; } = double.NaN;
 
-    private const int CurrentVersion = 2;
+    private const int CurrentVersion = 3;
 
     public static string DataDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GlassMonitor");
@@ -119,6 +132,15 @@ public sealed class AppSettings
             foreach (var id in new[] { "cpuclock", "gpuclock", "cpupower", "gpupower", "gpufan", "fan", "battery" })
                 if (!Hidden.Contains(id)) Hidden.Add(id);
         }
+        if (SettingsVersion < 3)
+        {
+            // v3：FPS、伺服器延遲只在遊戲中顯示
+            foreach (var id in new[] { "gamefps", "gameping" })
+            {
+                if (!Hidden.Contains(id)) Hidden.Add(id);
+                if (!GameItems.Contains(id)) GameItems.Add(id);
+            }
+        }
         SettingsVersion = CurrentVersion;
     }
 
@@ -151,6 +173,8 @@ public sealed class AppSettings
         AlertCpuTemp = Math.Clamp(AlertCpuTemp, 50, 105);
         AlertGpuTemp = Math.Clamp(AlertGpuTemp, 50, 105);
         AlertMemPct = Math.Clamp(AlertMemPct, 50, 99);
+        AlertCpuFanRpm = Math.Clamp(AlertCpuFanRpm, 100, 2000);
+        AlertPumpRpm = Math.Clamp(AlertPumpRpm, 100, 3000);
         Order ??= new();
         Hidden ??= new();
         GameProcesses ??= new();
@@ -159,6 +183,20 @@ public sealed class AppSettings
         if (string.IsNullOrWhiteSpace(UpdateRepo)) UpdateRepo = DefaultRepo;
         CpuFanSensor ??= "";
         PumpSensor ??= "";
+    }
+
+    /// <summary>匯出成 JSON 檔。</summary>
+    public void ExportTo(string path) => File.WriteAllText(path, JsonSerializer.Serialize(this, Opt));
+
+    /// <summary>從 JSON 檔匯入（經過舊版轉換與檢查），覆蓋目前設定並存檔。</summary>
+    public void ImportFrom(string path)
+    {
+        var o = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), Opt)
+                ?? throw new InvalidDataException("檔案內容不是設定檔");
+        o.Migrate();
+        o.Normalize();
+        CopyFrom(o);
+        Save();
     }
 
     /// <summary>把另一份設定的內容複製過來（恢復預設用）。</summary>

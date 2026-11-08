@@ -117,6 +117,10 @@ public sealed class MetricCell : FrameworkElement
         "gpuclock" => "8888 MHz",
         "cpupower" or "gpupower" => "888 W",
         "fan" or "gpufan" or "cpufan" or "pump" => "8888 RPM",
+        "gamefps" => "888 FPS",
+        "gameping" => "8888 ms",
+        "disktemp" => "100 °C",
+        "diskhealth" => "100%",
         "uptime" => "88d 88h",
         "cpuproc" or "memproc" or "slow" => "msedgewebvi",
         _ => "88.8 GB", // 記憶體、磁碟、網路流量
@@ -138,7 +142,7 @@ public sealed class MetricCell : FrameworkElement
             _sticky = NeededWidth();
             return new Size(_sticky, Math.Round(40 * UiScale));
         }
-        return new Size(Math.Round(250 * UiScale), Math.Round((_fancy ? 30 : 24) * UiScale));
+        return new Size(Math.Round(185 * UiScale), Math.Round((_fancy ? 30 : 24) * UiScale));
     }
 
     private static Brush Solid(Color c)

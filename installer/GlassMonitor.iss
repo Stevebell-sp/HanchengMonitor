@@ -2,7 +2,7 @@
 ; 編譯：先 dotnet publish 到 ..\publish，再用 ISCC 編譯本檔
 
 #define AppName "瀚誠系統監控"
-#define AppVersion "0.2.4"
+#define AppVersion "0.2.5"
 #define AppExe "GlassMonitor.exe"
 #define TaskName "瀚誠系統監控"
 
@@ -39,6 +39,7 @@ Name: "pawnio"; Description: "安裝 PawnIO 驅動程式（讀取 CPU 溫度需�
 [Files]
 Source: "..\publish\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "redist\PresentMon.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "redist\PawnIO_setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Tasks: pawnio
 
 [Icons]

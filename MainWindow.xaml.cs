@@ -240,6 +240,14 @@ public partial class MainWindow : Window
         EvaluateAlerts(states);
         _last = states;
         UpdateGameState();
+        FollowGameWindow();
+        if (_svc != null)
+        {
+            _svc.GamePid = _inGame ? _game.CurrentPid : 0;
+            _svc.GameName = _game.CurrentGame ?? "";
+            _svc.FpsEnabled = _s.GameFps;
+            _svc.PingEnabled = _s.GamePing;
+        }
 
         foreach (var (id, cell) in _cells)
             if (states.TryGetValue(id, out var st)) cell.Update(st);
@@ -280,6 +288,7 @@ public partial class MainWindow : Window
         if (active != _inGame)
         {
             _inGame = active;
+            _gameArea = GameAreaDip();
             if (_s.GameSimple && _s.Style == "Fancy") ApplyVisuals();
             if (_s.GameMini || (_s.GameSimple && _s.Style == "Fancy")) RebuildCells();
             ApplyModePosition();
@@ -292,10 +301,29 @@ public partial class MainWindow : Window
 
     private void EvaluateAlerts(Dictionary<string, MetricState> st)
     {
-        if (!_s.AlertEnabled) return;
-        Check(st, "cputemp", _s.AlertCpuTemp, "CPU 溫度", " °C");
-        Check(st, "gputemp", _s.AlertGpuTemp, "GPU 溫度", " °C");
-        Check(st, "memused", _s.AlertMemPct, "記憶體使用率", "%");
+        if (_s.AlertEnabled)
+        {
+            Check(st, "cputemp", _s.AlertCpuTemp, "CPU 溫度", " °C");
+            Check(st, "gputemp", _s.AlertGpuTemp, "GPU 溫度", " °C");
+            Check(st, "memused", _s.AlertMemPct, "記憶體使用率", "%");
+        }
+        // 停轉警示與上面的警示各自獨立開關
+        if (_s.AlertFanStall)
+        {
+            CheckLow(st, "cpufan", _s.AlertCpuFanRpm, "CPU 風扇");
+            CheckLow(st, "pump", _s.AlertPumpRpm, "水冷泵");
+        }
+    }
+
+    /// <summary>轉速低於門檻（停轉）：格子閃紅框，並跳通知。</summary>
+    private void CheckLow(Dictionary<string, MetricState> st, string id, double limit, string name)
+    {
+        if (!st.TryGetValue(id, out var m) || double.IsNaN(m.Value) || m.Value >= limit) return;
+        m.Alert = true;
+        if (!_s.AlertNotify) return;
+        if (_alertTimes.TryGetValue(id, out var t) && (DateTime.Now - t).TotalMinutes < 5) return;
+        _alertTimes[id] = DateTime.Now;
+        _tray.Balloon($"{name}轉速過低", $"{name}目前 {m.Value:0} RPM，低於設定的 {limit:0} RPM，請確認是否停轉。");
     }
 
     private void Check(Dictionary<string, MetricState> st, string id, double limit, string name, string unit)
@@ -325,7 +353,7 @@ public partial class MainWindow : Window
     {
         if (_svc == null) return;
         var pal = Palette.For(_s.Theme);
-        bool horizontal = (_inGame && _s.GameMini ? _s.GameLayout : _s.Layout) != "Vertical";
+        bool horizontal = (_inGame && _s.GameMini ? _s.GameLayout : _s.Layout) != "Vertical" && !_forceVertical;
         bool fancy = Fancy;
         bool dark = _s.Theme != "Light";
 
@@ -385,7 +413,9 @@ public partial class MainWindow : Window
         double l = Left, t = Top;
         if (!_s.LockPosition)
         {
+            _dragging = true;
             try { DragMove(); } catch { }
+            finally { _dragging = false; }
         }
         bool moved = Math.Abs(Left - l) > 2 || Math.Abs(Top - t) > 2;
         if (moved)
@@ -399,9 +429,62 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>可用範圍（WPF 單位）。遊戲中通常是全螢幕，用整個螢幕而不是扣掉工作列的範圍。</summary>
+    /// <summary>視窗模式遊戲的畫面範圍（WPF 單位）；不在遊戲、全螢幕或沒開「放在遊戲視窗裡」時為 null。</summary>
+    private Rect? _gameArea;
+    private bool _dragging;
+    /// <summary>視窗模式遊戲的畫面放不下橫條時，暫時改成直式。</summary>
+    private bool _forceVertical;
+
+    /// <summary>依遊戲畫面大小決定要不要暫時改直式，有變動就重建格子。</summary>
+    private void FitToGameArea()
+    {
+        bool want = false;
+        if (_inGame && _gameArea is Rect ga)
+        {
+            bool horizontal = (_s.GameMini ? _s.GameLayout : _s.Layout) != "Vertical";
+            if (horizontal)
+            {
+                if (_forceVertical)
+                {
+                    // 已經是直式：估算改回橫式的寬度（重建後量），放得下才改回去
+                    _forceVertical = false;
+                    RebuildCells();
+                    UpdateLayout();
+                }
+                want = ActualWidth > ga.Width - 12;
+            }
+        }
+        if (want != _forceVertical)
+        {
+            _forceVertical = want;
+            RebuildCells();
+            UpdateLayout();
+        }
+    }
+
+    private Rect? GameAreaDip()
+    {
+        if (!_inGame || !_s.GameFollowWindow) return null;
+        var r = _game.WindowedGameArea();
+        if (r == null) return null;
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var g = r.Value;
+        return new Rect(g.Left / dpi.DpiScaleX, g.Top / dpi.DpiScaleY, g.Width / dpi.DpiScaleX, g.Height / dpi.DpiScaleY);
+    }
+
+    /// <summary>每次取樣檢查遊戲視窗是否移動或縮放，有的話小工具跟著移。</summary>
+    private void FollowGameWindow()
+    {
+        var area = GameAreaDip();
+        if (area == _gameArea) return;
+        _gameArea = area;
+        if (_inGame && !_dragging) ApplyModePosition();
+    }
+
+    /// <summary>可用範圍（WPF 單位）。遊戲中通常是全螢幕，用整個螢幕而不是扣掉工作列的範圍；視窗模式遊戲用遊戲畫面範圍。</summary>
     private Rect WorkAreaDip(bool? fullScreen = null)
     {
+        if (fullScreen == null && _inGame && _gameArea is Rect ga) return ga;
         var screen = System.Windows.Forms.Screen.FromHandle(_hwnd);
         var wa = fullScreen ?? _inGame ? screen.Bounds : screen.WorkingArea;
         var dpi = VisualTreeHelper.GetDpi(this);
@@ -412,7 +495,14 @@ public partial class MainWindow : Window
     private void SavePosition(bool customGame)
     {
         _positioned = true;
-        if (_inGame)
+        if (_inGame && _gameArea is Rect ga)
+        {
+            // 視窗模式遊戲：記相對遊戲畫面的位置
+            _s.GameWinLeft = Left - ga.Left;
+            _s.GameWinTop = Top - ga.Top;
+            if (customGame) _s.GameAnchor = "Custom";
+        }
+        else if (_inGame)
         {
             _s.GameLeft = Left;
             _s.GameTop = Top;
@@ -430,9 +520,20 @@ public partial class MainWindow : Window
     private void ApplyModePosition()
     {
         UpdateLayout();
+        FitToGameArea();
         if (_inGame)
         {
             if (_s.GameAnchor != "Custom") PlaceAnchor(_s.GameAnchor);
+            else if (_gameArea is Rect ga)
+            {
+                // 自訂位置（相對遊戲畫面）；還沒記過就先放左上角
+                if (double.IsNaN(_s.GameWinLeft) || double.IsNaN(_s.GameWinTop)) PlaceAnchor("TopLeft");
+                else
+                {
+                    Left = Math.Round(ga.Left + Math.Clamp(_s.GameWinLeft, 0, Math.Max(0, ga.Width - ActualWidth)));
+                    Top = Math.Round(ga.Top + Math.Clamp(_s.GameWinTop, 0, Math.Max(0, ga.Height - ActualHeight)));
+                }
+            }
             else if (!double.IsNaN(_s.GameLeft) && !double.IsNaN(_s.GameTop))
             {
                 Left = _s.GameLeft;
@@ -467,8 +568,9 @@ public partial class MainWindow : Window
             "BottomRight" => (wa.Right - w - m, wa.Bottom - h - m),
             _ => (cx, wa.Top + m),
         };
-        Left = Math.Round(x);
-        Top = Math.Round(y);
+        // 小工具比可用範圍還寬時，至少對齊左緣，不要超出去
+        Left = Math.Round(Math.Max(x, wa.Left));
+        Top = Math.Round(Math.Max(y, wa.Top));
     }
 
     /// <summary>選單的「移到…」：遊戲中會記成遊戲位置的固定方位。</summary>

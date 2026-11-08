@@ -27,6 +27,13 @@ if (-not (Test-Path $redist)) {
 }
 if ((Get-FileHash $redist -Algorithm SHA256).Hash -ne $pawnHash) { throw "PawnIO_setup.exe 雜湊不符" }
 
+# Intel PresentMon（遊戲 FPS 用，未修改的官方檔案，驗證 SHA-256）
+$pmUrl = 'https://github.com/GameTechDev/PresentMon/releases/download/v2.6.0/PresentMon-2.6.0-x64.exe'
+$pmHash = 'B2A706BC6AD475749E3B7E3409263AA1E6906D45BDCF993F6DBC0F660188F1AF'
+$pm = Join-Path $root 'installer\redist\PresentMon.exe'
+if (-not (Test-Path $pm)) { Invoke-WebRequest $pmUrl -OutFile $pm -UseBasicParsing }
+if ((Get-FileHash $pm -Algorithm SHA256).Hash -ne $pmHash) { throw "PresentMon.exe 雜湊不符" }
+
 # 發佈單一執行檔
 dotnet publish GlassMonitor.csproj -c Release -r win-x64 --self-contained true `
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `

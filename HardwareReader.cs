@@ -21,7 +21,12 @@ public sealed class HwSnapshot
     /// <summary>主機板上所有風扇接頭（名稱、轉速），給設定頁挑選用。</summary>
     public List<(string Name, double Rpm)> BoardFans = new();
     public List<SensorRow>? All;
+    /// <summary>各顆硬碟：名稱、溫度、健康度（剩餘壽命 %）、已寫入量（GB）。</summary>
+    public List<DriveHealth> Drives = new();
+    public double DiskTempMax = double.NaN, DiskHealthMin = double.NaN;
 }
+
+public sealed record DriveHealth(string Name, double Temp, double Health, double WrittenGB);
 
 /// <summary>用 LibreHardwareMonitor 讀溫度、功耗、時脈、風扇、顯示記憶體。</summary>
 public sealed class HardwareReader : IDisposable
@@ -34,9 +39,13 @@ public sealed class HardwareReader : IDisposable
     private int _boardResets;
     private List<(string Name, double Rpm)>? _lastGoodFans;
     private DateTime _lastGoodTime;
+    private readonly List<IHardware> _storages;
+    private DateTime _storageTime = DateTime.MinValue;
+    private List<DriveHealth> _drives = new();
 
     public bool HasGpu => _gpuHw != null;
     public bool HasFans { get; }
+    public bool HasStorage => _storages.Count > 0;
 
     /// <summary>使用者指定的 CPU 風扇／水冷泵感測器名稱；空字串＝自動判斷，"-"＝不使用。</summary>
     public volatile string CpuFanSensor = "", PumpSensor = "";
@@ -47,7 +56,7 @@ public sealed class HardwareReader : IDisposable
 
     public HardwareReader()
     {
-        _pc = new Computer { IsCpuEnabled = true, IsGpuEnabled = true, IsMotherboardEnabled = true };
+        _pc = new Computer { IsCpuEnabled = true, IsGpuEnabled = true, IsMotherboardEnabled = true, IsStorageEnabled = true };
         _pc.Open();
         foreach (var hw in _pc.Hardware)
         {
@@ -59,6 +68,7 @@ public sealed class HardwareReader : IDisposable
               ?? _pc.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.GpuAmd)
               ?? _pc.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.GpuIntel);
         _boards = _pc.Hardware.Where(h => h.HardwareType == HardwareType.Motherboard).ToList();
+        _storages = _pc.Hardware.Where(h => h.HardwareType == HardwareType.Storage).ToList();
         HasFans = _boards.SelectMany(AllSensors).Any(s => s.SensorType == SensorType.Fan && s.Value > 0);
 
         WriteLog();
@@ -148,8 +158,45 @@ public sealed class HardwareReader : IDisposable
         r.CpuFan = RpmOf(boardFans, r.CpuFanName);
         r.Pump = RpmOf(boardFans, r.PumpName);
 
+        // 硬碟 S.M.A.R.T. 變化很慢，10 秒讀一次就好
+        if ((DateTime.UtcNow - _storageTime).TotalSeconds >= 10)
+        {
+            _storageTime = DateTime.UtcNow;
+            _drives = ReadDrives();
+        }
+        r.Drives = _drives;
+        var temps = _drives.Where(d => !double.IsNaN(d.Temp)).Select(d => d.Temp).ToList();
+        var lifes = _drives.Where(d => !double.IsNaN(d.Health)).Select(d => d.Health).ToList();
+        if (temps.Count > 0) r.DiskTempMax = temps.Max();
+        if (lifes.Count > 0) r.DiskHealthMin = lifes.Min();
+
         if (includeAll) r.All = BuildAll();
         return r;
+    }
+
+    private List<DriveHealth> ReadDrives()
+    {
+        var list = new List<DriveHealth>();
+        foreach (var hw in _storages)
+        {
+            try { hw.Update(); } catch { continue; }
+            var all = hw.Sensors.Where(x => x.Value.HasValue).ToList();
+            // 溫度：NVMe 叫 Composite Temperature，SATA 叫 Temperature；排除警告／臨界門檻
+            var t = all.FirstOrDefault(x => x.SensorType == SensorType.Temperature && x.Name.Contains("Composite"))
+                    ?? all.FirstOrDefault(x => x.SensorType == SensorType.Temperature
+                                               && !x.Name.Contains("Warning") && !x.Name.Contains("Critical"));
+            // 健康度：LibreHardwareMonitor 的 Life（剩餘壽命）；沒有就用 100 - Percentage Used
+            double health = double.NaN;
+            var life = all.FirstOrDefault(x => x.SensorType == SensorType.Level && (x.Name == "Life" || x.Name.Contains("Remaining Life")));
+            if (life != null) health = life.Value!.Value;
+            else if (all.FirstOrDefault(x => x.SensorType == SensorType.Level && x.Name == "Percentage Used") is { } used)
+                health = Math.Max(0, 100 - used.Value!.Value);
+            var written = all.FirstOrDefault(x => x.SensorType == SensorType.Data && x.Name.Contains("Written"));
+            double temp = t?.Value is float f && f > 0 ? f : double.NaN;
+            if (double.IsNaN(temp) && double.IsNaN(health)) continue;
+            list.Add(new DriveHealth(hw.Name, temp, health, written?.Value ?? double.NaN));
+        }
+        return list;
     }
 
     private bool BoardFansAllZero()
@@ -234,6 +281,8 @@ public sealed class HardwareReader : IDisposable
             SensorType.Load => $"{v:0} %",
             SensorType.SmallData => $"{v:0} MB",
             SensorType.Voltage => $"{v:0.000} V",
+            SensorType.Level => $"{v:0} %",
+            SensorType.Data => $"{v:0.#} GB",
             _ => $"{v:0.##}",
         };
     }
@@ -272,7 +321,7 @@ public sealed class HardwareReader : IDisposable
                 {
                     log.AppendLine($"[{h.HardwareType}] {h.Name}");
                     foreach (var s in h.Sensors.Where(s => s.SensorType is SensorType.Temperature or SensorType.Fan
-                                 or SensorType.Power or SensorType.Clock or SensorType.SmallData))
+                                 or SensorType.Power or SensorType.Clock or SensorType.SmallData or SensorType.Level or SensorType.Data))
                         log.AppendLine($"    {s.SensorType,-12} {s.Name} = {(s.Value.HasValue ? Format(s) : "（讀不到）")}");
                 }
             }

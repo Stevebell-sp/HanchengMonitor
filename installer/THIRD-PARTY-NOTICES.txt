@@ -14,6 +14,12 @@ PawnIO（驅動程式，安裝時可選）
           https://github.com/namazso/PawnIO
   本安裝程式隨附未經修改的官方 PawnIO_setup.exe（2.2.0 版）。
 
+Intel PresentMon
+  用途：遊戲模式中測量遊戲 FPS
+  授權：MIT License（Copyright (C) Intel Corporation）
+  原始碼：https://github.com/GameTechDev/PresentMon
+  本安裝程式隨附未經修改的官方 PresentMon-2.6.0-x64.exe（改名為 PresentMon.exe）。
+
 .NET Runtime（已內含於主程式）
   授權：MIT License
   原始碼：https://github.com/dotnet/runtime

@@ -78,14 +78,14 @@ public static class Accents
     public static int Category(string id) => id switch
     {
         "cpu" or "cpuproc" => 0,
-        "cputemp" or "gputemp" => 1,
+        "cputemp" or "gputemp" or "disktemp" => 1,
         "gpu" or "gpumem" => 2,
-        "netdown" => 5,
+        "netdown" or "gameping" => 5,
         "netup" => 6,
         "slow" => 7,
         "cpupower" or "gpupower" => 8,
         "fan" or "gpufan" or "cpufan" or "pump" => 9,
-        "cpuclock" or "gpuclock" => 10,
+        "cpuclock" or "gpuclock" or "gamefps" => 10,
         "battery" => 11,
         _ when id.StartsWith("mem") => 3,
         _ when id.StartsWith("disk") => 4,
@@ -119,6 +119,10 @@ public static class Accents
     /// <summary>Segoe Fluent Icons 的圖示字元。</summary>
     public static string Icon(string id)
     {
+        if (id == "gamefps") return "";                          // 遊戲手把
+        if (id == "gameping") return "";                         // 訊號
+        if (id == "disktemp") return "";                         // 溫度計
+        if (id == "diskhealth") return "";                       // 盾牌
         if (id == "pump") return "";                             // 水滴
         if (id == "cpufan") return "";                           // 旋轉
         if (id == "slow") return "";                              // 心電圖

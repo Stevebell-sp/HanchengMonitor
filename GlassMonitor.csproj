@@ -11,13 +11,18 @@
     <RootNamespace>GlassMonitor</RootNamespace>
     <Product>瀚誠系統監控</Product>
     <AssemblyTitle>瀚誠系統監控</AssemblyTitle>
-    <Version>0.2.4</Version>
+    <Version>0.2.5</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <Resource Include="app.ico" />
+  </ItemGroup>
+
+  <!-- 遊戲 FPS 用的 Intel PresentMon（發佈腳本會下載並驗證雜湊）；開發時複製到輸出資料夾，安裝程式另外放進安裝目錄 -->
+  <ItemGroup Condition="Exists('installer\redist\PresentMon.exe')">
+    <None Include="installer\redist\PresentMon.exe" Link="PresentMon.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
   <ItemGroup>

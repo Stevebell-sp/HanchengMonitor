@@ -216,6 +216,13 @@ public sealed class MetricsService : IDisposable
         Def("netup", "網路上傳");
         if (_hasBattery) Def("battery", "電池");
         Def("uptime", "開機時間");
+        if (_hw?.HasStorage == true)
+        {
+            Def("disktemp", "SSD 溫度");
+            Def("diskhealth", "SSD 健康度");
+        }
+        Def("gamefps", "遊戲 FPS");
+        Def("gameping", "伺服器延遲");
 
         Sample(); // 先取一次當基準
     }
@@ -262,6 +269,7 @@ public sealed class MetricsService : IDisposable
         "gpu" or "gpumem" or "gputemp" or "gpuclock" or "gpupower" => "gpu",
         "memused" or "memfree" or "memproc" => "mem",
         "netdown" or "netup" => "net",
+        "gamefps" or "gameping" => "game",
         _ when id.StartsWith("disk") => "disk",
         _ => "system",
     };
@@ -270,6 +278,7 @@ public sealed class MetricsService : IDisposable
     {
         "cpu" => "處理器",
         "sensors" => "溫度與風扇",
+        "game" => "遊戲",
         "gpu" => "顯示卡",
         "mem" => "記憶體",
         "disk" => "磁碟",
@@ -281,6 +290,7 @@ public sealed class MetricsService : IDisposable
     {
         "cpu" => "cpu",
         "sensors" => "cputemp",
+        "game" => "gamefps",
         "gpu" => "gpu",
         "mem" => "memused",
         "disk" => "diskbusy",
@@ -496,12 +506,73 @@ public sealed class MetricsService : IDisposable
             if (sl.Level > 0) sl.Fraction = 1;
         }
 
+        // 硬碟溫度與健康度
+        if (_hw?.HasStorage == true)
+        {
+            TempCell(S("disktemp"), hw.DiskTempMax, 60, 70);
+            var dh = S("diskhealth");
+            if (!double.IsNaN(hw.DiskHealthMin))
+            {
+                dh.Text = $"{hw.DiskHealthMin:0}%";
+                dh.Value = hw.DiskHealthMin;
+                dh.Fraction = hw.DiskHealthMin / 100;
+                dh.Level = hw.DiskHealthMin < 20 ? 2 : hw.DiskHealthMin < 50 ? 1 : 0;
+            }
+            else
+            {
+                dh.Text = "-----";
+            }
+        }
+
+        // 遊戲：FPS 與伺服器延遲（只在遊戲中量）
+        int gpid = GamePid;
+        var gf = S("gamefps");
+        double fps = FpsEnabled ? _fps.Measure(gpid) : StopFps();
+        gf.Text = double.IsNaN(fps) ? "—" : $"{fps:0} FPS";
+        gf.Value = fps;
+        if (!double.IsNaN(fps))
+        {
+            gf.History = Push("gamefps", fps);
+            PushLong("gamefps", fps);
+            gf.Level = fps < 30 ? 2 : fps < 50 ? 1 : 0;
+        }
+        var gp = S("gameping");
+        if (PingEnabled && (DateTime.UtcNow - _pingTime).TotalSeconds >= 2)
+        {
+            _pingTime = DateTime.UtcNow;
+            try { _lastPing = _ping.Measure(gpid); } catch (Exception ex) { _lastPing = double.NaN; App.LogError(ex); }        }
+        if (!PingEnabled || gpid <= 0) _lastPing = double.NaN;
+        gp.Text = double.IsNaN(_lastPing) ? "—" : $"{_lastPing:0} ms";
+        gp.Value = _lastPing;
+        if (!double.IsNaN(_lastPing))
+        {
+            gp.History = Push("gameping", _lastPing);
+            gp.Level = _lastPing >= 200 ? 2 : _lastPing >= 100 ? 1 : 0;
+        }
+
         var result = new SampleResult { States = r };
         if (detail != null)
         {
             try { result.Detail = BuildDetail(detail, hw); } catch (Exception ex) { App.LogError(ex); }
         }
         return result;
+    }
+
+    // ───── 遊戲 ─────
+
+    /// <summary>目前遊戲的程序 ID（不在遊戲中為 0），由 UI 設定。</summary>
+    public volatile int GamePid;
+    public volatile string GameName = "";
+    public volatile bool FpsEnabled = true, PingEnabled = true;
+    private readonly GamePing _ping = new();
+    private readonly GameFps _fps = new();
+    private DateTime _pingTime = DateTime.MinValue;
+    private double _lastPing = double.NaN;
+
+    private double StopFps()
+    {
+        _fps.Stop();
+        return double.NaN;
     }
 
     private static int Lv(double v, double warn, double crit) => v >= crit ? 2 : v >= warn ? 1 : 0;
@@ -865,9 +936,35 @@ public sealed class MetricsService : IDisposable
             case "sensors":
                 d.Charts.Add(new ChartData { Id = "cputemp", Name = "CPU", Values = Long("cputemp"), Percent = true, Unit = "°C" });
                 d.Charts.Add(new ChartData { Id = "gputemp", Name = "GPU", Values = Long("gputemp"), Percent = true, Unit = "°C" });
+                foreach (var dr in hw.Drives)
+                {
+                    string w = double.IsNaN(dr.WrittenGB) ? "" : $" · 已寫入 {dr.WrittenGB / 1024:0.0} TB";
+                    string t = double.IsNaN(dr.Temp) ? "" : $"{dr.Temp:0} °C";
+                    string h = double.IsNaN(dr.Health) ? "" : $" · 健康 {dr.Health:0}%";
+                    d.Info.Add(new KV(dr.Name, $"{t}{h}{w}"));
+                }
                 if (hw.CpuFanName.Length > 0) d.Info.Add(new KV("CPU 風扇", $"{hw.CpuFan:0} RPM（{hw.CpuFanName}）"));
                 if (hw.PumpName.Length > 0) d.Info.Add(new KV("水冷泵", $"{hw.Pump:0} RPM（{hw.PumpName}）"));
                 d.Sensors = hw.All;
+                break;
+
+            case "game":
+                d.Charts.Add(new ChartData { Id = "gamefps", Name = "FPS", Values = Long("gamefps"), Percent = false, Unit = "FPS" });
+                int gp2 = GamePid;
+                d.Info.Add(new KV("遊戲程式", gp2 > 0 ? $"{GameName}（PID {gp2}）" : "目前不在遊戲中"));
+                if (FpsEnabled)
+                {
+                    if (!double.IsNaN(_fps.FrameTimeMs)) d.Info.Add(new KV("平均幀時間", $"{_fps.FrameTimeMs:0.0} ms"));
+                    if (!double.IsNaN(_fps.Low1)) d.Info.Add(new KV("1% Low", $"{_fps.Low1:0} FPS"));
+                    if (_fps.Note.Length > 0) d.Info.Add(new KV("FPS", _fps.Note));
+                }
+                if (PingEnabled)
+                {
+                    if (_ping.Server.Length > 0) d.Info.Add(new KV("伺服器", _ping.Server));
+                    if (!double.IsNaN(_lastPing)) d.Info.Add(new KV("延遲", $"{_lastPing:0} ms"));
+                    if (_ping.Note.Length > 0) d.Info.Add(new KV("延遲", _ping.Note));
+                }
+                d.Note = "延遲是讀取遊戲與伺服器之間 TCP 連線的往返時間，不會額外發送封包；只支援 TCP 連線的遊戲（例如 Minecraft Java 版）。";
                 break;
 
             default:
@@ -913,5 +1010,6 @@ public sealed class MetricsService : IDisposable
         foreach (var c in _diskIdle) c.Dispose();
         if (_cores != null) foreach (var c in _cores) c.Dispose();
         _hw?.Dispose();
+        _fps.Dispose();
     }
 }

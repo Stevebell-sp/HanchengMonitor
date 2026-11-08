@@ -139,6 +139,19 @@
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
+                            <TextBlock Text="設定備份" Style="{StaticResource SectionTitle}"/>
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11.5" Margin="0,4,0,6" Foreground="{DynamicResource FgDimBrush}"
+                                               Text="把所有設定存成一個檔案，重灌或換電腦時可以一鍵還原。"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,6">
+                                        <Button Content="匯出設定…" Style="{StaticResource GlassButton}" Click="Export_Click"/>
+                                        <Button Content="匯入設定…" Margin="8,0,0,0" Style="{StaticResource GlassButton}" Click="Import_Click"/>
+                                        <TextBlock x:Name="BackupStatus" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="260"
+                                                   Foreground="{DynamicResource FgDimBrush}" FontSize="11.5"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- 顯示項目 -->
@@ -164,6 +177,21 @@
                                     <TextBox x:Name="GameListBox" Style="{StaticResource GlassText}" LostFocus="OnTextChanged" Margin="0,0,0,6"/>
                                 </StackPanel>
                             </Border>
+                            <TextBlock Text="遊戲數據" Style="{StaticResource SectionTitle}"/>
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <CheckBox x:Name="GameFpsBox" Content="測量遊戲 FPS" Style="{StaticResource Switch}" Margin="0,6,0,0"
+                                              Checked="OnAnyChanged" Unchecked="OnAnyChanged"/>
+                                    <TextBlock Text="在背景執行 Intel PresentMon，只錄目前遊戲的畫面更新；離開遊戲就停止。"
+                                               TextWrapping="Wrap" FontSize="11" Margin="44,2,0,6" Foreground="{DynamicResource FgDimBrush}"/>
+                                    <CheckBox x:Name="GamePingBox" Content="測量遊戲伺服器延遲" Style="{StaticResource Switch}" Margin="0,6,0,0"
+                                              Checked="OnAnyChanged" Unchecked="OnAnyChanged"/>
+                                    <TextBlock Text="自動找出遊戲連到的伺服器，讀取連線的往返時間，不會額外發送封包。只支援 TCP 連線的遊戲（例如 Minecraft Java 版）。"
+                                               TextWrapping="Wrap" FontSize="11" Margin="44,2,0,6" Foreground="{DynamicResource FgDimBrush}"/>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,2,0,6" Foreground="{DynamicResource FgDimBrush}"
+                                               Text="「遊戲 FPS」「伺服器延遲」兩格預設只在遊戲中顯示，可以在下面「遊戲中顯示的項目」開關。"/>
+                                </StackPanel>
+                            </Border>
                             <TextBlock Text="遊戲中的外觀" Style="{StaticResource SectionTitle}"/>
                             <Border Style="{StaticResource Card}">
                                 <StackPanel>
@@ -178,12 +206,14 @@
                                         <RadioButton x:Name="GameLayoutH" GroupName="glayout" Content="橫式" Style="{StaticResource Seg}" Checked="OnAnyChanged"/>
                                         <RadioButton x:Name="GameLayoutV" GroupName="glayout" Content="直式" Style="{StaticResource Seg}" Checked="OnAnyChanged"/>
                                     </StackPanel>
+                                    <CheckBox x:Name="GameFollowBox" Content="遊戲是視窗模式時，小工具放在遊戲視窗裡面" Style="{StaticResource Switch}" Margin="0,8,0,4"
+                                              Checked="OnAnyChanged" Unchecked="OnAnyChanged"/>
                                     <DockPanel Margin="0,4">
                                         <TextBlock Text="遊戲中位置" Style="{StaticResource RowLabel}" DockPanel.Dock="Left" VerticalAlignment="Top" Margin="0,5,0,0"/>
                                         <WrapPanel x:Name="GameAnchorPanel"/>
                                     </DockPanel>
                                     <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,2,0,6" Foreground="{DynamicResource FgDimBrush}"
-                                               Text="選「自訂」時，在遊戲中直接拖曳小工具就會記住位置（開了滑鼠穿透要按住 Alt 拖曳）。「獨佔全螢幕」的遊戲會蓋過所有視窗，建議遊戲改用「無邊框視窗」模式。"/>
+                                               Text="選「自訂」時，在遊戲中直接拖曳小工具就會記住位置（開了滑鼠穿透要按住 Alt 拖曳）；視窗模式的遊戲會記住在遊戲視窗裡的相對位置，遊戲視窗移動時小工具會跟著走。「獨佔全螢幕」的遊戲會蓋過所有視窗，建議遊戲改用「無邊框視窗」模式。"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -203,6 +233,27 @@
                             </Border>
                             <TextBlock Style="{StaticResource PageHint}" Margin="2,10,0,0"
                                        Text="提示：拔掉或調整某顆風扇時看哪個數字變化，就能確認對應的接頭。「顯示項目」頁可以開關這兩格。"/>
+                            <TextBlock Text="停轉警示" Style="{StaticResource SectionTitle}"/>
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <CheckBox x:Name="FanStallBox" Content="轉速過低時警示（格子閃紅框＋跳通知）" Style="{StaticResource Switch}" Margin="0,6,0,4"
+                                              Checked="OnAnyChanged" Unchecked="OnAnyChanged"/>
+                                    <DockPanel Margin="0,6">
+                                        <TextBlock Text="CPU 風扇低於" Style="{StaticResource RowLabel}" DockPanel.Dock="Left"/>
+                                        <TextBlock x:Name="CpuFanLimitLabel" DockPanel.Dock="Right" Width="70" TextAlignment="Right" VerticalAlignment="Center"/>
+                                        <Slider x:Name="CpuFanLimitSlider" Minimum="100" Maximum="2000" IsSnapToTickEnabled="True" TickFrequency="50"
+                                                VerticalAlignment="Center" ValueChanged="OnSliderChanged"/>
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6">
+                                        <TextBlock Text="水冷泵低於" Style="{StaticResource RowLabel}" DockPanel.Dock="Left"/>
+                                        <TextBlock x:Name="PumpLimitLabel" DockPanel.Dock="Right" Width="70" TextAlignment="Right" VerticalAlignment="Center"/>
+                                        <Slider x:Name="PumpLimitSlider" Minimum="100" Maximum="3000" IsSnapToTickEnabled="True" TickFrequency="50"
+                                                VerticalAlignment="Center" ValueChanged="OnSliderChanged"/>
+                                    </DockPanel>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,2,0,6" Foreground="{DynamicResource FgDimBrush}"
+                                               Text="通知要在「警示與紀錄」頁開啟「跳出 Windows 通知」才會出現。有「零轉速」模式的風扇，低負載時會停轉，門檻可以設低一點或不要開。"/>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- 警示與紀錄 -->

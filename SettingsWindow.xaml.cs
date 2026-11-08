@@ -208,6 +208,9 @@ public partial class SettingsWindow : Window
         FullscreenBox.IsChecked = _s.GameDetectFullscreen;
         GameMiniBox.IsChecked = _s.GameMini;
         GameSimpleBox.IsChecked = _s.GameSimple;
+        GameFpsBox.IsChecked = _s.GameFps;
+        GamePingBox.IsChecked = _s.GamePing;
+        GameFollowBox.IsChecked = _s.GameFollowWindow;
         GameLayoutH.IsChecked = _s.GameLayout != "Vertical";
         GameLayoutV.IsChecked = _s.GameLayout == "Vertical";
         foreach (RadioButton rb in GameAnchorPanel.Children) rb.IsChecked = (string)rb.Tag == _s.GameAnchor;
@@ -218,6 +221,9 @@ public partial class SettingsWindow : Window
         GpuLimitSlider.Value = _s.AlertGpuTemp;
         MemLimitSlider.Value = _s.AlertMemPct;
         NotifyBox.IsChecked = _s.AlertNotify;
+        FanStallBox.IsChecked = _s.AlertFanStall;
+        CpuFanLimitSlider.Value = _s.AlertCpuFanRpm;
+        PumpLimitSlider.Value = _s.AlertPumpRpm;
 
         HistoryBox.IsChecked = _s.HistoryEnabled;
         Days7.IsChecked = _s.HistoryDays == 7;
@@ -239,6 +245,8 @@ public partial class SettingsWindow : Window
         CpuLimitLabel.Text = $"{CpuLimitSlider.Value:0} °C";
         GpuLimitLabel.Text = $"{GpuLimitSlider.Value:0} °C";
         MemLimitLabel.Text = $"{MemLimitSlider.Value:0}%";
+        CpuFanLimitLabel.Text = $"{CpuFanLimitSlider.Value:0} RPM";
+        PumpLimitLabel.Text = $"{PumpLimitSlider.Value:0} RPM";
     }
 
     private void OnAnyChanged(object sender, RoutedEventArgs e) => Commit();
@@ -275,6 +283,9 @@ public partial class SettingsWindow : Window
         _s.GameDetectFullscreen = FullscreenBox.IsChecked == true;
         _s.GameMini = GameMiniBox.IsChecked == true;
         _s.GameSimple = GameSimpleBox.IsChecked == true;
+        _s.GameFps = GameFpsBox.IsChecked == true;
+        _s.GamePing = GamePingBox.IsChecked == true;
+        _s.GameFollowWindow = GameFollowBox.IsChecked == true;
         _s.GameLayout = GameLayoutV.IsChecked == true ? "Vertical" : "Horizontal";
         var anchor = GameAnchorPanel.Children.OfType<RadioButton>().FirstOrDefault(r => r.IsChecked == true);
         if (anchor != null) _s.GameAnchor = (string)anchor.Tag;
@@ -290,6 +301,9 @@ public partial class SettingsWindow : Window
         _s.AlertGpuTemp = GpuLimitSlider.Value;
         _s.AlertMemPct = MemLimitSlider.Value;
         _s.AlertNotify = NotifyBox.IsChecked == true;
+        _s.AlertFanStall = FanStallBox.IsChecked == true;
+        _s.AlertCpuFanRpm = CpuFanLimitSlider.Value;
+        _s.AlertPumpRpm = PumpLimitSlider.Value;
 
         _s.HistoryEnabled = HistoryBox.IsChecked == true;
         _s.HistoryDays = Days7.IsChecked == true ? 7 : Days90.IsChecked == true ? 90 : 30;
@@ -498,6 +512,55 @@ public partial class SettingsWindow : Window
     // ───── 其他按鈕 ─────
 
     private void History_Click(object sender, RoutedEventArgs e) => _openHistory();
+
+    // ───── 設定備份 ─────
+
+    private void Export_Click(object sender, RoutedEventArgs e)
+    {
+        Commit();
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "匯出設定",
+            FileName = $"瀚誠系統監控設定_{DateTime.Now:yyyyMMdd}.json",
+            Filter = "設定檔 (*.json)|*.json",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            _s.ExportTo(dlg.FileName);
+            BackupStatus.Text = "已匯出。";
+        }
+        catch (Exception ex)
+        {
+            BackupStatus.Text = $"匯出失敗：{ex.Message}";
+        }
+    }
+
+    private void Import_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "匯入設定",
+            Filter = "設定檔 (*.json)|*.json",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            bool hadAuto = _s.AutoStart;
+            _s.ImportFrom(dlg.FileName);
+            if (_s.AutoStart != hadAuto) AutoStart.Set(_s.AutoStart);
+            _loading = true;
+            LoadValues();
+            _loading = false;
+            _changed();
+            ApplyGlass();
+            BackupStatus.Text = "已匯入並套用。";
+        }
+        catch (Exception ex)
+        {
+            BackupStatus.Text = $"匯入失敗：{ex.Message}";
+        }
+    }
 
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
     {
