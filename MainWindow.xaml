@@ -1,0 +1,27 @@
+<Window x:Class="GlassMonitor.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="瀚誠系統監控"
+        WindowStyle="None" ResizeMode="NoResize" Background="Transparent"
+        SizeToContent="WidthAndHeight" ShowInTaskbar="False" Topmost="True"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display">
+    <WindowChrome.WindowChrome>
+        <WindowChrome GlassFrameThickness="-1" CaptionHeight="0" ResizeBorderThickness="0"
+                      CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
+
+    <!-- 圓角固定 8px，與 Windows 11 DWM 圓角一致，玻璃才不會從角落露出來 -->
+    <Grid>
+        <Border x:Name="Frame" CornerRadius="8" Padding="3,2" Background="#01000000">
+            <StackPanel x:Name="Cells" Orientation="Horizontal">
+                <TextBlock x:Name="Placeholder" Text="瀚誠系統監控 載入中…" Margin="14,10"
+                           Foreground="White" FontFamily="Microsoft JhengHei UI" FontSize="13"/>
+            </StackPanel>
+        </Border>
+        <!-- 三層柔邊：外緣細線、內側高光、更內側淡光，讓邊緣漸層淡出 -->
+        <Border x:Name="EdgeOuter" CornerRadius="8" BorderThickness="1" IsHitTestVisible="False"/>
+        <Border x:Name="EdgeInner" CornerRadius="7" BorderThickness="1" Margin="1" IsHitTestVisible="False"/>
+        <Border x:Name="EdgeGlow" CornerRadius="6" BorderThickness="3" Margin="2" IsHitTestVisible="False"/>
+    </Grid>
+</Window>

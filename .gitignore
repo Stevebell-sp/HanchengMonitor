@@ -1,0 +1,13 @@
+# 編譯產物
+bin/
+obj/
+publish/
+dist/
+.vs/
+*.user
+
+# 第三方安裝檔（發佈腳本會自動下載並驗證雜湊）
+installer/redist/
+
+# 預覽圖
+installer/icon-preview.png

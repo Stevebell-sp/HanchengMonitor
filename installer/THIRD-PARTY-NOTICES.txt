@@ -1,0 +1,19 @@
+﻿瀚誠系統監控 使用的第三方元件
+================================
+
+LibreHardwareMonitorLib
+  用途：讀取 CPU / GPU 溫度
+  授權：Mozilla Public License 2.0
+  原始碼：https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+
+PawnIO（驅動程式，安裝時可選）
+  用途：讓 LibreHardwareMonitor 讀取 CPU 溫度感測器
+  授權：安裝程式 PawnIO.Setup 為 GNU General Public License v2.0；
+        驅動程式本體的授權請見其原始碼庫
+  原始碼：https://github.com/namazso/PawnIO.Setup
+          https://github.com/namazso/PawnIO
+  本安裝程式隨附未經修改的官方 PawnIO_setup.exe（2.2.0 版）。
+
+.NET Runtime（已內含於主程式）
+  授權：MIT License
+  原始碼：https://github.com/dotnet/runtime
