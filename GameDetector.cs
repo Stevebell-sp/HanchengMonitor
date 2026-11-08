@@ -34,6 +34,19 @@ public sealed class GameDetector
         "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "Windows.UI.Core.CoreWindow",
     };
 
+    /// <summary>全螢幕也不算遊戲的程式：瀏覽器（看影片）、影片播放器、簡報、遠端桌面等。</summary>
+    private static readonly HashSet<string> NonGameFullscreen = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // 瀏覽器
+        "chrome", "msedge", "firefox", "opera", "opera_gx", "brave", "vivaldi", "iexplore", "arc", "whale", "librewolf", "waterfox", "chromium",
+        // 影片播放器、串流
+        "vlc", "mpc-hc", "mpc-hc64", "mpc-be", "mpc-be64", "PotPlayer", "PotPlayer64", "PotPlayerMini", "PotPlayerMini64",
+        "wmplayer", "Video.UI", "Microsoft.Media.Player", "mpv", "KMPlayer", "KMPlayer64X", "GOM", "Netflix", "Disney+",
+        "ApplicationFrameHost", "kodi", "Plex", "Spotify",
+        // 簡報、圖片、遠端
+        "POWERPNT", "Microsoft.Photos", "PhotosApp", "mstsc", "msrdc",
+    };
+
     private readonly Dictionary<uint, string> _names = new();
     private bool _last;
 
@@ -51,7 +64,7 @@ public sealed class GameDetector
         if (pid == (uint)Environment.ProcessId) return _last;
 
         bool isGame = s.GameProcesses.Any(g => string.Equals(Normalize(g), name, StringComparison.OrdinalIgnoreCase));
-        if (!isGame && s.GameDetectFullscreen && !IsShell(fg) && IsFullscreen(fg)) isGame = true;
+        if (!isGame && s.GameDetectFullscreen && !NonGameFullscreen.Contains(name) && !IsShell(fg) && IsFullscreen(fg)) isGame = true;
 
         CurrentGame = isGame ? name : null;
         _last = isGame;

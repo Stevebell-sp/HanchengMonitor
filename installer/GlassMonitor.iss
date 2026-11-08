@@ -2,7 +2,7 @@
 ; 編譯：先 dotnet publish 到 ..\publish，再用 ISCC 編譯本檔
 
 #define AppName "瀚誠系統監控"
-#define AppVersion "0.2.2"
+#define AppVersion "0.2.3"
 #define AppExe "GlassMonitor.exe"
 #define TaskName "瀚誠系統監控"
 
