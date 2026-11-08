@@ -2,7 +2,7 @@
 ; 編譯：先 dotnet publish 到 ..\publish，再用 ISCC 編譯本檔
 
 #define AppName "瀚誠系統監控"
-#define AppVersion "0.2.0"
+#define AppVersion "0.2.1"
 #define AppExe "GlassMonitor.exe"
 #define TaskName "瀚誠系統監控"
 
@@ -49,7 +49,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 [Run]
 Filename: "{tmp}\PawnIO_setup.exe"; Parameters: "-install -silent"; StatusMsg: "正在安裝 PawnIO 驅動程式…"; Tasks: pawnio; Flags: waituntilterminated
 Filename: "{sys}\schtasks.exe"; Parameters: "/Create /F /TN ""{#TaskName}"" /TR ""\""{app}\{#AppExe}\"""" /SC ONLOGON /RL HIGHEST"; StatusMsg: "正在設定自動啟動…"; Tasks: autostart; Flags: runhidden waituntilterminated
-Filename: "{app}\{#AppExe}"; Description: "立即啟動 {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Description: "立即啟動 {#AppName}"; Flags: nowait postinstall skipifsilent runascurrentuser
 ; 自動更新（安靜模式）完成後重新開啟
 Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WizardSilent
 
