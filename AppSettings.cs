@@ -52,6 +52,9 @@ public sealed class AppSettings
     /// <summary>視窗模式遊戲、位置選「自訂」時，相對遊戲畫面左上角的位置。</summary>
     public double GameWinLeft { get; set; } = double.NaN;
     public double GameWinTop { get; set; } = double.NaN;
+    /// <summary>全螢幕遊戲、位置選「自訂」時，相對遊戲所在螢幕左上角的位置（遊戲換螢幕時跟著換）。</summary>
+    public double GameScreenLeft { get; set; } = double.NaN;
+    public double GameScreenTop { get; set; } = double.NaN;
     public List<string> GameItems { get; set; } = new() { "cpu", "cputemp", "gpu", "gputemp", "gpumem", "gamefps", "gameping" };
     /// <summary>遊戲中的排列：Horizontal / Vertical。</summary>
     public string GameLayout { get; set; } = "Horizontal";

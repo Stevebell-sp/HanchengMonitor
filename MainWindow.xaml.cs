@@ -289,6 +289,7 @@ public partial class MainWindow : Window
         {
             _inGame = active;
             _gameArea = GameAreaDip();
+            _gameScreen = _inGame ? GameScreen().DeviceName : "";
             if (_s.GameSimple && _s.Style == "Fancy") ApplyVisuals();
             if (_s.GameMini || (_s.GameSimple && _s.Style == "Fancy")) RebuildCells();
             ApplyModePosition();
@@ -476,16 +477,30 @@ public partial class MainWindow : Window
     private void FollowGameWindow()
     {
         var area = GameAreaDip();
-        if (area == _gameArea) return;
+        string screen = _inGame ? GameScreen().DeviceName : "";
+        if (area == _gameArea && screen == _gameScreen) return;
         _gameArea = area;
+        _gameScreen = screen;
         if (_inGame && !_dragging) ApplyModePosition();
+    }
+
+    private string _gameScreen = "";
+
+    /// <summary>遊戲所在的螢幕；不在遊戲或找不到遊戲視窗時，用小工具自己所在的螢幕。</summary>
+    private System.Windows.Forms.Screen GameScreen()
+    {
+        IntPtr g = _game.CurrentWindow;
+        return _inGame && g != IntPtr.Zero
+            ? System.Windows.Forms.Screen.FromHandle(g)
+            : System.Windows.Forms.Screen.FromHandle(_hwnd);
     }
 
     /// <summary>可用範圍（WPF 單位）。遊戲中通常是全螢幕，用整個螢幕而不是扣掉工作列的範圍；視窗模式遊戲用遊戲畫面範圍。</summary>
     private Rect WorkAreaDip(bool? fullScreen = null)
     {
         if (fullScreen == null && _inGame && _gameArea is Rect ga) return ga;
-        var screen = System.Windows.Forms.Screen.FromHandle(_hwnd);
+        // 遊戲中以遊戲所在的螢幕為準（多螢幕時小工具會跟到遊戲那個螢幕）
+        var screen = fullScreen == null ? GameScreen() : System.Windows.Forms.Screen.FromHandle(_hwnd);
         var wa = fullScreen ?? _inGame ? screen.Bounds : screen.WorkingArea;
         var dpi = VisualTreeHelper.GetDpi(this);
         return new Rect(wa.Left / dpi.DpiScaleX, wa.Top / dpi.DpiScaleY, wa.Width / dpi.DpiScaleX, wa.Height / dpi.DpiScaleY);
@@ -506,6 +521,9 @@ public partial class MainWindow : Window
         {
             _s.GameLeft = Left;
             _s.GameTop = Top;
+            var sa = WorkAreaDip();
+            _s.GameScreenLeft = Left - sa.Left;
+            _s.GameScreenTop = Top - sa.Top;
             if (customGame) _s.GameAnchor = "Custom";
         }
         else
@@ -534,10 +552,26 @@ public partial class MainWindow : Window
                     Top = Math.Round(ga.Top + Math.Clamp(_s.GameWinTop, 0, Math.Max(0, ga.Height - ActualHeight)));
                 }
             }
-            else if (!double.IsNaN(_s.GameLeft) && !double.IsNaN(_s.GameTop))
+            else
             {
-                Left = _s.GameLeft;
-                Top = _s.GameTop;
+                var sa = WorkAreaDip();
+                if (!double.IsNaN(_s.GameScreenLeft) && !double.IsNaN(_s.GameScreenTop))
+                {
+                    // 相對遊戲所在螢幕的位置
+                    Left = Math.Round(sa.Left + Math.Clamp(_s.GameScreenLeft, 0, Math.Max(0, sa.Width - ActualWidth)));
+                    Top = Math.Round(sa.Top + Math.Clamp(_s.GameScreenTop, 0, Math.Max(0, sa.Height - ActualHeight)));
+                }
+                else if (!double.IsNaN(_s.GameLeft) && !double.IsNaN(_s.GameTop)
+                         && sa.Contains(new Point(_s.GameLeft + 20, _s.GameTop + 10)))
+                {
+                    // 舊版記的絕對位置，剛好在遊戲那個螢幕上就沿用
+                    Left = _s.GameLeft;
+                    Top = _s.GameTop;
+                }
+                else
+                {
+                    PlaceAnchor("TopCenter");
+                }
             }
         }
         else if (!double.IsNaN(_s.Left) && !double.IsNaN(_s.Top))
