@@ -26,6 +26,8 @@ public partial class MainWindow : Window
     private DetailWindow? _detail;
     private HistoryWindow? _historyWin;
     private UpdateInfo? _pendingUpdate;
+    private bool _autoInstallWanted;
+    private bool _installing;
     private IntPtr _hwnd;
     private bool _positioned;
     private bool _exiting;
@@ -137,7 +139,7 @@ public partial class MainWindow : Window
         Frame.Cursor = _s.LockPosition ? Cursors.Arrow : Cursors.SizeAll;
 
         bool dark = _s.Theme != "Light";
-        if (_s.Style == "Fancy")
+        if (Fancy)
         {
             Frame.Padding = new Thickness(5, 4, 5, 4);
             EdgeOuter.BorderBrush = Rainbow(dark ? (byte)0x78 : (byte)0x90);
@@ -207,8 +209,9 @@ public partial class MainWindow : Window
             Placeholder.Text = "讀取系統資訊失敗，詳見 error.log";
             return;
         }
+        _svc.SetFanSensors(_s.CpuFanSensor, _s.PumpSensor);
         RebuildCells();
-        if (_s.AutoCheckUpdate && !string.IsNullOrWhiteSpace(_s.UpdateRepo)) _ = CheckUpdateAsync(silent: true);
+        _ = UpdateLoopAsync();
         await RunLoop();
     }
 
@@ -250,6 +253,10 @@ public partial class MainWindow : Window
 
         _history.Add(states);
 
+        // 全自動更新：有待安裝的新版本，且不在遊戲中，就直接安裝
+        if (_autoInstallWanted && !_installing && !_inGame && _pendingUpdate != null && _s.AutoInstallUpdate)
+            _ = InstallUpdateAsync(ask: false);
+
         if (!_positioned)
         {
             UpdateLayout();
@@ -264,13 +271,17 @@ public partial class MainWindow : Window
 
     // ───── 遊戲模式 ─────
 
+    /// <summary>目前是否用華麗風格：遊戲中開了「簡約外觀」就改用簡約。</summary>
+    private bool Fancy => _s.Style == "Fancy" && !(_inGame && _s.GameSimple);
+
     private void UpdateGameState()
     {
         bool active = _s.GameMode && _game.IsGameForeground(_s, _hwnd);
         if (active != _inGame)
         {
             _inGame = active;
-            if (_s.GameMini) RebuildCells();
+            if (_s.GameSimple && _s.Style == "Fancy") ApplyVisuals();
+            if (_s.GameMini || (_s.GameSimple && _s.Style == "Fancy")) RebuildCells();
             ApplyModePosition();
         }
         bool want = WantTopmost;
@@ -315,7 +326,7 @@ public partial class MainWindow : Window
         if (_svc == null) return;
         var pal = Palette.For(_s.Theme);
         bool horizontal = (_inGame && _s.GameMini ? _s.GameLayout : _s.Layout) != "Vertical";
-        bool fancy = _s.Style == "Fancy";
+        bool fancy = Fancy;
         bool dark = _s.Theme != "Light";
 
         Cells.Children.Clear();
@@ -520,6 +531,7 @@ public partial class MainWindow : Window
         m.Items.Add(Item("歷史紀錄…", OpenHistory));
         m.Items.Add(Sep());
         m.Items.Add(Item("遊戲模式", () => Change(() => _s.GameMode = !_s.GameMode), _s.GameMode));
+        m.Items.Add(Item("遊戲中簡約外觀", () => Change(() => _s.GameSimple = !_s.GameSimple), _s.GameSimple));
         m.Items.Add(Item("永遠置頂", () => Change(() => _s.Topmost = !_s.Topmost), _s.Topmost));
         m.Items.Add(Item("滑鼠穿透", ToggleClickThrough, _s.ClickThrough));
         m.Items.Add(Item("鎖定位置", () => Change(() => _s.LockPosition = !_s.LockPosition), _s.LockPosition));
@@ -576,6 +588,7 @@ public partial class MainWindow : Window
         }
         ThemeManager.Apply(_s.Theme);
         ApplyVisuals();
+        _svc?.SetFanSensors(_s.CpuFanSensor, _s.PumpSensor);
         RebuildCells();
         _s.Save();
     }
@@ -588,7 +601,9 @@ public partial class MainWindow : Window
             _settingsWin.Activate();
             return;
         }
-        _settingsWin = new SettingsWindow(_s, _svc.Definitions, OnSettingsChanged, OpenHistory, () => CheckUpdateAsync(silent: false));
+        var svc = _svc;
+        _settingsWin = new SettingsWindow(_s, _svc.Definitions, OnSettingsChanged, OpenHistory, () => CheckUpdateAsync(silent: false),
+                                          () => svc.LastHardware);
         _settingsWin.Closed += (_, _) => _settingsWin = null;
         _settingsWin.Show();
     }
@@ -627,6 +642,15 @@ public partial class MainWindow : Window
                 return msg;
             }
             _pendingUpdate = info;
+            if (_s.AutoInstallUpdate)
+            {
+                // 交給 ApplyResult：不在遊戲中時就自動安裝
+                _autoInstallWanted = true;
+                string auto = _inGame
+                    ? $"有新版本 {info.Version}，離開遊戲後會自動更新。"
+                    : $"有新版本 {info.Version}，正在自動更新…";
+                return auto;
+            }
             string found = $"有新版本 {info.Version}，在小工具上按右鍵即可更新。";
             _tray.Balloon("瀚誠系統監控有新版本", found);
             return found;
@@ -640,23 +664,49 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task InstallUpdateAsync()
+    /// <summary>啟動 20 秒後檢查一次，之後每 6 小時檢查一次。</summary>
+    private async Task UpdateLoopAsync()
     {
-        if (_pendingUpdate == null) return;
+        await Task.Delay(TimeSpan.FromSeconds(20));
+        while (!_exiting)
+        {
+            // 自動安裝失敗過的話，下一輪會重新檢查並再試一次
+            if ((_s.AutoCheckUpdate || _s.AutoInstallUpdate) && (_pendingUpdate == null || _s.AutoInstallUpdate)
+                && !string.IsNullOrWhiteSpace(_s.UpdateRepo))
+                await CheckUpdateAsync(silent: true);
+            await Task.Delay(TimeSpan.FromHours(6));
+        }
+    }
+
+    private async Task InstallUpdateAsync(bool ask = true)
+    {
+        if (_pendingUpdate == null || _installing) return;
         var info = _pendingUpdate;
-        string notes = string.IsNullOrWhiteSpace(info.Notes) ? "" : $"\n\n更新內容：\n{info.Notes}";
-        if (MessageBox.Show($"要更新到 {info.Version} 嗎？程式會先關閉，安裝完成後自動重新開啟。{notes}",
-                "瀚誠系統監控", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        if (ask)
+        {
+            string notes = string.IsNullOrWhiteSpace(info.Notes) ? "" : $"\n\n更新內容：\n{info.Notes}";
+            if (MessageBox.Show($"要更新到 {info.Version} 嗎？程式會先關閉，安裝完成後自動重新開啟。{notes}",
+                    "瀚誠系統監控", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        }
+        _installing = true;
+        _autoInstallWanted = false;
         try
         {
-            _tray.Balloon("正在下載更新", $"版本 {info.Version}");
+            _tray.Balloon(ask ? "正在下載更新" : "瀚誠系統監控自動更新中", $"版本 {info.Version}，安裝完成後會自動重新開啟。");
             await Updater.InstallAsync(info);
             ExitApp();
         }
         catch (Exception ex)
         {
             App.LogError(ex);
-            MessageBox.Show($"更新失敗：{ex.Message}", "瀚誠系統監控", MessageBoxButton.OK, MessageBoxImage.Warning);
+            if (ask)
+                MessageBox.Show($"更新失敗：{ex.Message}", "瀚誠系統監控", MessageBoxButton.OK, MessageBoxImage.Warning);
+            else
+                _tray.Balloon("自動更新失敗", $"{ex.Message}\n可以稍後在小工具上按右鍵手動更新。");
+        }
+        finally
+        {
+            _installing = false;
         }
     }
 

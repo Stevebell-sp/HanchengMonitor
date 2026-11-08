@@ -116,7 +116,7 @@ public sealed class MetricCell : FrameworkElement
         "cpuclock" => "8.88 GHz",
         "gpuclock" => "8888 MHz",
         "cpupower" or "gpupower" => "888 W",
-        "fan" or "gpufan" => "8888 RPM",
+        "fan" or "gpufan" or "cpufan" or "pump" => "8888 RPM",
         "uptime" => "88d 88h",
         "cpuproc" or "memproc" or "slow" => "msedgewebvi",
         _ => "88.8 GB", // 記憶體、磁碟、網路流量

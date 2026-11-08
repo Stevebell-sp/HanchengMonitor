@@ -41,6 +41,8 @@ public sealed class AppSettings
     public bool GameDetectFullscreen { get; set; } = true;
     public List<string> GameProcesses { get; set; } = new() { "javaw" };
     public bool GameMini { get; set; } = true;
+    /// <summary>遊戲中改用簡約外觀（不發光、不畫圖示，比較不搶畫面）。</summary>
+    public bool GameSimple { get; set; }
     public List<string> GameItems { get; set; } = new() { "cpu", "cputemp", "gpu", "gputemp", "gpumem" };
     /// <summary>遊戲中的排列：Horizontal / Vertical。</summary>
     public string GameLayout { get; set; } = "Horizontal";
@@ -65,6 +67,12 @@ public sealed class AppSettings
     public string UpdateRepo { get; set; } = DefaultRepo;
     public const string DefaultRepo = "Stevebell-sp/HanchengMonitor";
     public bool AutoCheckUpdate { get; set; } = true;
+    /// <summary>全自動更新：發現新版本就直接下載安裝，不詢問（遊戲中會等到離開遊戲）。</summary>
+    public bool AutoInstallUpdate { get; set; } = true;
+
+    // 風扇對應（主機板風扇接頭名稱；空字串＝自動判斷，"-"＝不使用）
+    public string CpuFanSensor { get; set; } = "";
+    public string PumpSensor { get; set; } = "";
 
     // 位置
     public double Left { get; set; } = double.NaN;
@@ -149,6 +157,8 @@ public sealed class AppSettings
         GameItems ??= new();
         ColorOverrides ??= new();
         if (string.IsNullOrWhiteSpace(UpdateRepo)) UpdateRepo = DefaultRepo;
+        CpuFanSensor ??= "";
+        PumpSensor ??= "";
     }
 
     /// <summary>把另一份設定的內容複製過來（恢復預設用）。</summary>

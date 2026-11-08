@@ -74,6 +74,17 @@ public sealed class MetricsService : IDisposable
 
     public IReadOnlyList<MetricDef> Definitions => _defs;
 
+    /// <summary>指定 CPU 風扇／水冷泵對應的感測器（空字串＝自動，"-"＝不使用）。</summary>
+    public void SetFanSensors(string cpuFan, string pump)
+    {
+        if (_hw == null) return;
+        _hw.CpuFanSensor = cpuFan ?? "";
+        _hw.PumpSensor = pump ?? "";
+    }
+
+    /// <summary>最近一次讀到的主機板風扇清單與目前的對應，給設定頁用。</summary>
+    public HwSnapshot LastHardware => _hwSnap;
+
     /// <summary>詳細面板目前要看的類別（null 表示沒開），由 UI 設定。</summary>
     public volatile string? DetailWanted;
 
@@ -190,7 +201,12 @@ public sealed class MetricsService : IDisposable
             Def("gpupower", "GPU 功耗");
             Def("gpufan", "GPU 風扇");
         }
-        if (_hw?.HasFans == true) Def("fan", "風扇轉速");
+        if (_hw?.HasFans == true)
+        {
+            Def("cpufan", "CPU 風扇");
+            Def("pump", "水冷泵");
+            Def("fan", "風扇轉速");
+        }
         Def("memused", "已用記憶體");
         Def("memfree", "可用記憶體");
         foreach (var d in _drives) Def($"disk.{d.Letter}.read", $"{d.Letter} 讀取");
@@ -242,7 +258,7 @@ public sealed class MetricsService : IDisposable
     public static string CategoryOf(string id) => id switch
     {
         "cpu" or "cpuproc" or "cpuclock" or "cpupower" or "slow" => "cpu",
-        "cputemp" or "fan" or "gpufan" => "sensors",
+        "cputemp" or "fan" or "gpufan" or "cpufan" or "pump" => "sensors",
         "gpu" or "gpumem" or "gputemp" or "gpuclock" or "gpupower" => "gpu",
         "memused" or "memfree" or "memproc" => "mem",
         "netdown" or "netup" => "net",
@@ -390,7 +406,12 @@ public sealed class MetricsService : IDisposable
                 Simple(S("gpupower"), hw.GpuPower, v => $"{v:0} W");
                 Simple(S("gpufan"), hw.GpuFan, v => $"{v:0} RPM");
             }
-            if (_hw.HasFans) Simple(S("fan"), hw.FanMax, v => $"{v:0} RPM");
+            if (_hw.HasFans)
+            {
+                Simple(S("fan"), hw.FanMax, v => $"{v:0} RPM");
+                Simple(S("cpufan"), hw.CpuFan, v => $"{v:0} RPM");
+                Simple(S("pump"), hw.Pump, v => $"{v:0} RPM");
+            }
         }
 
         // 磁碟
@@ -844,6 +865,8 @@ public sealed class MetricsService : IDisposable
             case "sensors":
                 d.Charts.Add(new ChartData { Id = "cputemp", Name = "CPU", Values = Long("cputemp"), Percent = true, Unit = "°C" });
                 d.Charts.Add(new ChartData { Id = "gputemp", Name = "GPU", Values = Long("gputemp"), Percent = true, Unit = "°C" });
+                if (hw.CpuFanName.Length > 0) d.Info.Add(new KV("CPU 風扇", $"{hw.CpuFan:0} RPM（{hw.CpuFanName}）"));
+                if (hw.PumpName.Length > 0) d.Info.Add(new KV("水冷泵", $"{hw.Pump:0} RPM（{hw.PumpName}）"));
                 d.Sensors = hw.All;
                 break;
 

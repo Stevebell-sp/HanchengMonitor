@@ -84,7 +84,7 @@ public static class Accents
         "netup" => 6,
         "slow" => 7,
         "cpupower" or "gpupower" => 8,
-        "fan" or "gpufan" => 9,
+        "fan" or "gpufan" or "cpufan" or "pump" => 9,
         "cpuclock" or "gpuclock" => 10,
         "battery" => 11,
         _ when id.StartsWith("mem") => 3,
@@ -119,6 +119,8 @@ public static class Accents
     /// <summary>Segoe Fluent Icons 的圖示字元。</summary>
     public static string Icon(string id)
     {
+        if (id == "pump") return "";                             // 水滴
+        if (id == "cpufan") return "";                           // 旋轉
         if (id == "slow") return "";                              // 心電圖
         if (id == "cpu") return "";                               // 晶片
         if (id is "cpuproc" or "memproc") return "";              // 齒輪

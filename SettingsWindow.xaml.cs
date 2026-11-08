@@ -18,14 +18,21 @@ public partial class SettingsWindow : Window
     private readonly Action _changed;
     private readonly Action _openHistory;
     private readonly Func<Task<string>> _checkUpdate;
+    private readonly Func<HwSnapshot> _hardware;
+    private readonly System.Windows.Threading.DispatcherTimer _fanTimer;
     private bool _loading = true;
+
+    /// <summary>上次停留的分頁，重開設定視窗時回到同一頁。</summary>
+    private static string _lastPage = "NavLook";
 
     // 拖曳排序
     private FrameworkElement? _dragRow;
     private FrameworkElement? _dragHandle;
 
-    public SettingsWindow(AppSettings s, IReadOnlyList<MetricDef> defs, Action changed, Action openHistory, Func<Task<string>> checkUpdate)
+    public SettingsWindow(AppSettings s, IReadOnlyList<MetricDef> defs, Action changed, Action openHistory, Func<Task<string>> checkUpdate,
+                          Func<HwSnapshot> hardware)
     {
+        _hardware = hardware;
         _s = s;
         _defs = defs;
         _changed = changed;
@@ -64,6 +71,103 @@ public partial class SettingsWindow : Window
 
         LoadValues();
         _loading = false;
+
+        // 風扇頁開著時每 2 秒更新轉速
+        _fanTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _fanTimer.Tick += (_, _) => BuildFanPanels();
+        Closed += (_, _) => _fanTimer.Stop();
+
+        if (FindName(_lastPage) is RadioButton nav) nav.IsChecked = true;
+        else NavLook.IsChecked = true;
+    }
+
+    // ───── 分頁 ─────
+
+    private void Nav_Checked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioButton rb) return;
+        var map = new (RadioButton Nav, FrameworkElement Page)[]
+        {
+            (NavLook, PageLook), (NavBehavior, PageBehavior), (NavItems, PageItems), (NavGame, PageGame),
+            (NavFans, PageFans), (NavAlert, PageAlert), (NavUpdate, PageUpdate),
+        };
+        foreach (var (nav, page) in map)
+            page.Visibility = nav == rb ? Visibility.Visible : Visibility.Collapsed;
+        _lastPage = rb.Name;
+        PageScroller?.ScrollToTop();
+
+        if (rb == NavFans)
+        {
+            BuildFanPanels();
+            _fanTimer?.Start();
+        }
+        else
+        {
+            _fanTimer?.Stop();
+        }
+    }
+
+    // ───── 風扇對應 ─────
+
+    private void BuildFanPanels()
+    {
+        var hw = _hardware();
+        var fans = hw.BoardFans;
+        if (fans.Count == 0)
+        {
+            FanHint.Text = "這台電腦的主機板沒有回報風扇轉速（可能需要 PawnIO 驅動，或主機板晶片不支援）。";
+            CpuFanPanel.Children.Clear();
+            PumpPanel.Children.Clear();
+            return;
+        }
+        FillFanPanel(CpuFanPanel, "cpufan", _s.CpuFanSensor, hw.CpuFanName, fans);
+        FillFanPanel(PumpPanel, "pump", _s.PumpSensor, hw.PumpName, fans);
+    }
+
+    /// <summary>一排選項：自動（顯示猜到的接頭）、不使用、每個風扇接頭與即時轉速。</summary>
+    private void FillFanPanel(WrapPanel panel, string group, string chosen, string resolved, List<(string Name, double Rpm)> fans)
+    {
+        var options = new List<(string Key, string Label)>
+        {
+            ("", resolved.Length > 0 && chosen.Length == 0 ? $"自動（{resolved}）" : "自動"),
+            ("-", "不使用"),
+        };
+        options.AddRange(fans.Select(f => (f.Name, $"{f.Name}  ·  {f.Rpm:0} RPM")));
+
+        // 數量一樣就只更新文字，避免每 2 秒重建造成閃爍
+        if (panel.Children.Count == options.Count)
+        {
+            for (int i = 0; i < options.Count; i++)
+            {
+                var rb = (RadioButton)panel.Children[i];
+                rb.Content = options[i].Label;
+                rb.IsChecked = options[i].Key == chosen;
+            }
+            return;
+        }
+
+        panel.Children.Clear();
+        foreach (var (key, label) in options)
+        {
+            var rb = new RadioButton
+            {
+                Content = label,
+                Tag = key,
+                GroupName = group,
+                IsChecked = key == chosen,
+                Style = (Style)FindResource("Seg"),
+                Margin = new Thickness(0, 0, 6, 6),
+            };
+            rb.Checked += (_, _) =>
+            {
+                if (_loading) return;
+                string current = group == "cpufan" ? _s.CpuFanSensor : _s.PumpSensor;
+                if (current == key) return; // 定時更新文字時不要重複套用
+                if (group == "cpufan") _s.CpuFanSensor = key; else _s.PumpSensor = key;
+                _changed();
+            };
+            panel.Children.Add(rb);
+        }
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -103,6 +207,7 @@ public partial class SettingsWindow : Window
         GameBox.IsChecked = _s.GameMode;
         FullscreenBox.IsChecked = _s.GameDetectFullscreen;
         GameMiniBox.IsChecked = _s.GameMini;
+        GameSimpleBox.IsChecked = _s.GameSimple;
         GameLayoutH.IsChecked = _s.GameLayout != "Vertical";
         GameLayoutV.IsChecked = _s.GameLayout == "Vertical";
         foreach (RadioButton rb in GameAnchorPanel.Children) rb.IsChecked = (string)rb.Tag == _s.GameAnchor;
@@ -121,6 +226,7 @@ public partial class SettingsWindow : Window
 
         UpdateRepoBox.Text = _s.UpdateRepo;
         AutoUpdateBox.IsChecked = _s.AutoCheckUpdate;
+        AutoInstallBox.IsChecked = _s.AutoInstallUpdate;
 
         UpdateLabels();
         BuildItems();
@@ -168,6 +274,7 @@ public partial class SettingsWindow : Window
         _s.GameMode = GameBox.IsChecked == true;
         _s.GameDetectFullscreen = FullscreenBox.IsChecked == true;
         _s.GameMini = GameMiniBox.IsChecked == true;
+        _s.GameSimple = GameSimpleBox.IsChecked == true;
         _s.GameLayout = GameLayoutV.IsChecked == true ? "Vertical" : "Horizontal";
         var anchor = GameAnchorPanel.Children.OfType<RadioButton>().FirstOrDefault(r => r.IsChecked == true);
         if (anchor != null) _s.GameAnchor = (string)anchor.Tag;
@@ -189,6 +296,7 @@ public partial class SettingsWindow : Window
 
         _s.UpdateRepo = UpdateRepoBox.Text.Trim();
         _s.AutoCheckUpdate = AutoUpdateBox.IsChecked == true;
+        _s.AutoInstallUpdate = AutoInstallBox.IsChecked == true;
 
         UpdateLabels();
         _changed();
