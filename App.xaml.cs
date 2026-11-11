@@ -11,6 +11,15 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // 被其他程式（例如 MSIX 封裝的 Claude 桌面版）以容器方式啟動時，
+        // 寫到 AppData 的設定會被導向到那個程式的虛擬資料夾，開機後就讀不到。
+        // 這種情況改由 Windows 檔案總管在容器外重新啟動自己，然後結束。
+        if (ContainerGuard.RelaunchOutsideIfNeeded())
+        {
+            Shutdown();
+            return;
+        }
+
         _mutex = new Mutex(true, @"Local\HanchengSystemMonitor", out bool isNew);
         if (!isNew)
         {
