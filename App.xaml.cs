@@ -37,6 +37,9 @@ public partial class App : Application
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
+        // 舊版建立的開機啟動工作有 72 小時執行上限，開著超過 3 天會被工作排程器直接結束
+        System.Threading.Tasks.Task.Run(AutoStart.FixTaskSettings);
+
         var settings = AppSettings.Load();
         ThemeManager.Apply(settings.Theme);
         var w = new MainWindow(settings);

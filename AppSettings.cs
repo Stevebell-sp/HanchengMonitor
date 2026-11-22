@@ -269,6 +269,42 @@ public static class AutoStart
             };
             using var p = System.Diagnostics.Process.Start(psi);
             p?.WaitForExit(5000);
+            if (on) FixTaskSettings();
+        }
+        catch (Exception ex)
+        {
+            App.LogError(ex);
+        }
+    }
+
+    /// <summary>
+    /// schtasks /Create 建立的工作預設「執行超過 72 小時就強制停止」，
+    /// 而且「改用電池時停止／用電池時不啟動」，小工具開著超過 3 天就會被工作排程器直接結束（不會留下當機紀錄）。
+    /// 這裡透過工作排程器的 COM 介面把這些限制拿掉；已經修過就不做事。
+    /// 每次啟動都會呼叫，舊版安裝程式建立的工作也會被修好。
+    /// </summary>
+    public static void FixTaskSettings()
+    {
+        try
+        {
+            var type = Type.GetTypeFromProgID("Schedule.Service");
+            if (type == null) return;
+            dynamic svc = Activator.CreateInstance(type)!;
+            svc.Connect();
+            dynamic folder = svc.GetFolder("\\");
+            dynamic task;
+            try { task = folder.GetTask(TaskName); }
+            catch { return; } // 沒有開機自動啟動
+            dynamic def = task.Definition;
+            dynamic st = def.Settings;
+            if ((string)st.ExecutionTimeLimit == "PT0S" && !(bool)st.DisallowStartIfOnBatteries && !(bool)st.StopIfGoingOnBatteries)
+                return;
+            st.ExecutionTimeLimit = "PT0S";
+            st.DisallowStartIfOnBatteries = false;
+            st.StopIfGoingOnBatteries = false;
+            // 6 = TASK_CREATE_OR_UPDATE；3 = TASK_LOGON_INTERACTIVE_TOKEN（沿用原本的使用者與最高權限）
+            folder.RegisterTaskDefinition(TaskName, def, 6, null, null, 3, null);
+            App.LogInfo("[autostart] 已移除開機啟動工作的 72 小時執行上限與電池限制");
         }
         catch (Exception ex)
         {
